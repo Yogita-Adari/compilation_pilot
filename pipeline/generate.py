@@ -46,7 +46,7 @@ INSTRUCTIONS = [
 ]
 
 def generate_sample(instruction):
-    # step 1 - generate thought
+    # step 1 - generate detailed thought/scratchpad
     thought_response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4000,
@@ -54,7 +54,15 @@ def generate_sample(instruction):
         system=SYSTEM_PROMPT,
         messages=[{
             "role": "user",
-            "content": f"Think through this step by step before answering: {instruction}"
+            "content": f"""Before solving this problem, write a detailed scratchpad showing:
+- Your interpretation of the problem and any ambiguities
+- Your planned approach and why you chose it
+- Any alternative approaches you considered and rejected
+- Step by step working including every calculation
+- Any mistakes you catch during working and why they are wrong
+- Your confidence in each step
+
+Problem: {instruction}"""
         }]
     )
     thought = thought_response.content[0].text
