@@ -12,6 +12,8 @@ Create a `.env` file in the project root: ANTHROPIC KEY GOES HERE
 
 ---
 
+---
+
 ## Data
 
 Three datasets are in `Data/`:
@@ -22,9 +24,42 @@ Three datasets are in `Data/`:
 
 ---
 
-## Run the eval harness
+## Step 1 — Run initial EDA on original dataset
 
-Runs on any dataset file:
+One-time exploratory analysis on the original dataset:
+```bash
+python initial_eda.py
+```
+
+---
+
+## Step 2 — Run eval harness on original dataset
+
+```bash
+python evals/harness.py Data/math_logic_samples.jsonl
+```
+
+---
+
+## Step 3 — Run generation pipeline
+
+Generates 30 samples with critique loop.
+Each sample is judged immediately after generation.
+Only samples passing overclaiming, circular reasoning, and theatrical checks are saved.
+Failed instructions logged to `Data/failed_instructions.txt`.
+
+```bash
+python pipeline/generate.py
+```
+
+Custom output file:
+```bash
+python pipeline/generate.py Data/my_output.jsonl
+```
+
+---
+
+## Step 4 — Run eval harness on all three datasets
 
 ```bash
 python evals/harness.py Data/math_logic_samples.jsonl
@@ -37,38 +72,10 @@ Checks performed:
 - Length distribution and collapse detection
 - Overclaiming and theatrical phrase matching
 - Monotone opening detection
-- LLM judge on prove-type responses
+- LLM judge on "prove"-type responses caught with the filter in evals
 
-Handles multiple file formats — original jsonl, claude jsonl, and Adaption json output.
-Column normalization is automatic.
-
----
-
-## Run the generation pipeline
-
-```bash
-python pipeline/generate.py
-```
-
-Generates 30 samples with critique loop.
-Each sample is judged immediately after generation.
-Only samples passing overclaiming, circular reasoning, and theatrical checks are saved.
-Failed instructions logged to `Data/failed_instructions.txt`.
-Output saved to `Data/claude_samples.jsonl` by default.
-
-Custom output file:
-```bash
-python pipeline/generate.py Data/my_output.jsonl
-```
-
----
-
-## Run initial EDA
-
-One-time exploratory analysis on the original dataset:
-```bash
-python initial_eda.py
-```
+Handles multiple file formats automatically.
+Column normalization is handled in the load function.
 
 ---
 
