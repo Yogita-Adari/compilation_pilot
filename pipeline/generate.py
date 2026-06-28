@@ -1,21 +1,32 @@
-import anthropic
 import json
 import os
 import sys
+from pathlib import Path
+
+import anthropic
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
+env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(env_path)
 
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+MODEL = "claude-sonnet-4-6"
+JUDGE_MAX_TOKENS = 150
+GENERATE_MAX_TOKENS = 4000
+JUDGE_RESPONSE_CHARS = 3000
+MAX_RETRIES = 3
+DEFAULT_OUTPUT_FILE = "Data/claude_samples.jsonl"
+DEFAULT_FAILED_LOG = "Data/failed_instructions.txt"
 
 SYSTEM_PROMPT = """
 You are a mathematical reasoning assistant generating training data.
 
 WHAT TO DO:
 1. Show every step of the thinking process in full detail
-2. Show full working - every calculation, every logical step, 
+2. Show full working - every calculation, every logical step,
    every assumption stated explicitly
-3. If you realize a genuine error during working, correct it 
+3. If you realize a genuine error during working, correct it
    and explain exactly which step was wrong and why
 
 WHAT NEVER TO DO:
@@ -60,13 +71,17 @@ INSTRUCTIONS = [
     "Derive the equations governing heat transfer in a fin of variable cross-section. Show how the efficiency depends on the Biot number."
 ]
 
+
 def judge_sample(instruction, response):
-    prompt = f"""
-You are evaluating a math reasoning dataset sample.
+    """
+    Runs an LLM judge on a generated sample.
+    Returns (passed: bool, verdict: str). On API error returns (False, error message).
+    """
+    prompt = f"""You are evaluating a math reasoning dataset sample.
 
 Instruction: {instruction}
 
-Response: {response[:3000]}
+Response: {response[:JUDGE_RESPONSE_CHARS]}
 
 Answer YES or NO for each, then one line reason:
 1. Does this response claim to prove something mathematically unsolved or impossible?
@@ -78,20 +93,32 @@ OVERCLAIMING: YES/NO - reason
 CIRCULAR: YES/NO - reason
 THEATRICAL: YES/NO - reason
 """
-    result = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=150,
-        temperature=0,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    text = result.content[0].text
-    passed = "OVERCLAIMING: YES" not in text and "CIRCULAR: YES" not in text and "THEATRICAL: YES" not in text
-    return passed, text
+    try:
+        result = client.messages.create(
+            model=MODEL,
+            max_tokens=JUDGE_MAX_TOKENS,
+            temperature=0,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        text = result.content[0].text
+        passed = (
+            "OVERCLAIMING: YES" not in text
+            and "CIRCULAR: YES" not in text
+            and "THEATRICAL: YES" not in text
+        )
+        return passed, text
+    except anthropic.APIError as e:
+        return False, str(e)
+
 
 def generate_sample(instruction):
+    """
+    Generates a (thought, response) pair for the given instruction.
+    Raises anthropic.APIError on failure so the retry loop can handle it.
+    """
     thought_response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4000,
+        model=MODEL,
+        max_tokens=GENERATE_MAX_TOKENS,
         temperature=0.7,
         system=SYSTEM_PROMPT,
         messages=[{
@@ -110,8 +137,8 @@ Problem: {instruction}"""
     thought = thought_response.content[0].text
 
     final_response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4000,
+        model=MODEL,
+        max_tokens=GENERATE_MAX_TOKENS,
         temperature=0.7,
         system=SYSTEM_PROMPT,
         messages=[{
@@ -121,9 +148,18 @@ Problem: {instruction}"""
     )
     return thought, final_response.content[0].text
 
-def generate_with_critique(instruction, max_retries=3):
+
+def generate_with_critique(instruction, max_retries=MAX_RETRIES):
+    """
+    Generates a sample and retries up to max_retries times if the judge rejects it.
+    Returns (thought, response, attempts) where thought and response are None on total failure.
+    """
     for attempt in range(max_retries):
-        thought, response = generate_sample(instruction)
+        try:
+            thought, response = generate_sample(instruction)
+        except anthropic.APIError as e:
+            print(f"   attempt {attempt + 1} failed — API error: {e}")
+            continue
         passed, verdict = judge_sample(instruction, response)
         if passed:
             return thought, response, attempt + 1
@@ -131,7 +167,11 @@ def generate_with_critique(instruction, max_retries=3):
         print(f"   reason: {verdict}")
     return None, None, max_retries
 
+
 def save_sample(instruction, thought, response, filepath):
+    """
+    Appends a single sample as a JSON line to filepath.
+    """
     sample = {
         "instruction": instruction,
         "thought": thought,
@@ -140,11 +180,13 @@ def save_sample(instruction, thought, response, filepath):
     with open(filepath, 'a', encoding='utf-8') as f:
         f.write(json.dumps(sample) + '\n')
 
-if __name__ == "__main__":
-    output_file = sys.argv[1] if len(sys.argv) > 1 else "Data/claude_samples.jsonl"
-    failed_log = "Data/failed_instructions.txt"
 
-    open(output_file, 'a').close()
+if __name__ == "__main__":
+    output_file = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_OUTPUT_FILE
+    failed_log = DEFAULT_FAILED_LOG
+
+    with open(output_file, 'a'):
+        pass
 
     print(f"generating {len(INSTRUCTIONS)} samples")
     print(f"saving to {output_file}")
@@ -159,7 +201,7 @@ if __name__ == "__main__":
 
         if thought is None:
             print(f"   failed after {attempts} attempts — skipping")
-            with open(failed_log, 'a') as f:
+            with open(failed_log, 'a', encoding='utf-8') as f:
                 f.write(instruction + '\n')
             failed += 1
         else:

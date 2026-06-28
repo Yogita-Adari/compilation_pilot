@@ -2,15 +2,18 @@
 # usage: python evals/harness.py Data/any_file.jsonl
 
 import json
-import sys
 import os
+import sys
+from pathlib import Path
+
 import anthropic
 import pandas as pd
-from pathlib import Path
 from dotenv import load_dotenv
 
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(env_path)
+
+client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 200
@@ -196,8 +199,6 @@ def llm_judge(df):
     Note: LLM judge is probabilistic - temperature=0 improves consistency
     but does not guarantee identical outputs across runs.
     """
-    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
     print("\n=== LLM JUDGE ===")
 
     prove_mask = df['instruction'].str.lower().str.contains('prove')
