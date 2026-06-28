@@ -42,11 +42,53 @@ INSTRUCTIONS = [
     "Derive the error term for Simpson's rule numerical integration. Show how the error depends on the fourth derivative and step size.",
     "Work through the derivation of the channel capacity formula for a binary symmetric channel. Show how Shannon entropy leads to the capacity bound.",
     "Prove that every subgroup of a cyclic group is cyclic. Work through the proof constructively showing how the generator of the subgroup is found.",
-    "Derive the Black-Scholes equation for option pricing. Show each assumption and how it leads to the final PDE."
+    "Derive the Black-Scholes equation for option pricing. Show each assumption and how it leads to the final PDE.",
+    "Derive the Euler-Lagrange equation from the principle of stationary action. Show how it applies to a simple harmonic oscillator.",
+    "Work through the derivation of the normal distribution from the central limit theorem. Show each step of the convergence argument.",
+    "Derive the convolution theorem for Fourier transforms. Show how it simplifies the computation of convolutions.",
+    "Work through the proof of Bayes theorem from first principles. Show a worked example with explicit probability calculations.",
+    "Derive the equations of motion for a charged particle in crossed electric and magnetic fields. Show the cyclotron frequency calculation.",
+    "Work through the Cholesky decomposition of a 3x3 positive definite matrix. Show each step of the factorization explicitly.",
+    "Derive the Green's function for the one-dimensional Poisson equation. Show how boundary conditions determine the solution.",
+    "Work through the simplex method on a linear programming problem with three variables and four constraints. Show the tableau at each pivot.",
+    "Derive the Navier-Stokes equations from conservation of momentum for a Newtonian fluid. Show each term's physical meaning.",
+    "Work through the proof of the Cauchy integral formula. Show how it follows from Green's theorem.",
+    "Derive the partition function for a two-level quantum system. Show how thermodynamic quantities follow from it.",
+    "Work through the derivation of the Kalman filter update equations. Show the geometric interpretation of the gain matrix.",
+    "Derive the singular value decomposition of a 2x2 matrix. Show the geometric interpretation of each factor.",
+    "Work through the proof of the prime number theorem using the Chebyshev psi function. Show each bound explicitly.",
+    "Derive the equations governing heat transfer in a fin of variable cross-section. Show how the efficiency depends on the Biot number."
 ]
 
+def judge_sample(instruction, response):
+    prompt = f"""
+You are evaluating a math reasoning dataset sample.
+
+Instruction: {instruction}
+
+Response: {response[:3000]}
+
+Answer YES or NO for each, then one line reason:
+1. Does this response claim to prove something mathematically unsolved or impossible?
+2. Is there circular reasoning (conclusion used as premise)?
+3. Is there theatrical self-correction (error announced before any evidence)?
+
+Format exactly:
+OVERCLAIMING: YES/NO - reason
+CIRCULAR: YES/NO - reason
+THEATRICAL: YES/NO - reason
+"""
+    result = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=150,
+        temperature=0,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    text = result.content[0].text
+    passed = "OVERCLAIMING: YES" not in text and "CIRCULAR: YES" not in text and "THEATRICAL: YES" not in text
+    return passed, text
+
 def generate_sample(instruction):
-    # step 1 - generate detailed thought/scratchpad
     thought_response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4000,
@@ -67,7 +109,6 @@ Problem: {instruction}"""
     )
     thought = thought_response.content[0].text
 
-    # step 2 - generate response using thought as context
     final_response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4000,
@@ -80,6 +121,16 @@ Problem: {instruction}"""
     )
     return thought, final_response.content[0].text
 
+def generate_with_critique(instruction, max_retries=3):
+    for attempt in range(max_retries):
+        thought, response = generate_sample(instruction)
+        passed, verdict = judge_sample(instruction, response)
+        if passed:
+            return thought, response, attempt + 1
+        print(f"   attempt {attempt + 1} failed — retrying")
+        print(f"   reason: {verdict}")
+    return None, None, max_retries
+
 def save_sample(instruction, thought, response, filepath):
     sample = {
         "instruction": instruction,
@@ -91,21 +142,30 @@ def save_sample(instruction, thought, response, filepath):
 
 if __name__ == "__main__":
     output_file = sys.argv[1] if len(sys.argv) > 1 else "Data/claude_samples.jsonl"
-    
-    # create file if not exists
+    failed_log = "Data/failed_instructions.txt"
+
     open(output_file, 'a').close()
-    
-    print(f"Generating {len(INSTRUCTIONS)} samples...")
-    print(f"Saving to: {output_file}")
-    
+
+    print(f"generating {len(INSTRUCTIONS)} samples")
+    print(f"saving to {output_file}")
+
+    passed = 0
+    failed = 0
+
     for i, instruction in enumerate(INSTRUCTIONS):
-        print(f"\nGenerating {i+1}/{len(INSTRUCTIONS)}: {instruction[:50]}...")
-        
-        try:
-            thought, response = generate_sample(instruction)
+        print(f"\n{i+1}/{len(INSTRUCTIONS)}: {instruction[:60]}...")
+
+        thought, response, attempts = generate_with_critique(instruction)
+
+        if thought is None:
+            print(f"   failed after {attempts} attempts — skipping")
+            with open(failed_log, 'a') as f:
+                f.write(instruction + '\n')
+            failed += 1
+        else:
             save_sample(instruction, thought, response, output_file)
-            print(f"   Saved — thought: {len(thought)} chars, response: {len(response)} chars")
-        except Exception as e:
-            print(f"   Failed: {e}")
-    
-    print(f"\nDone. {len(INSTRUCTIONS)} samples saved to {output_file}")
+            print(f"   saved on attempt {attempts} — thought: {len(thought)} chars, response: {len(response)} chars")
+            passed += 1
+
+    print(f"\ndone — {passed} passed, {failed} failed")
+    print(f"saved to {output_file}")
