@@ -57,7 +57,6 @@ def load_dataset(filepath):
             'prompt': 'instruction',
             'completion': 'response'
         })
-    # original and claude already have correct column names
 
     required = ['instruction', 'response']
     for col in required:
@@ -194,17 +193,18 @@ def monotone_check(df):
 def llm_judge(df):
     """
     LLM judge for deeper quality checks.
-    Checks overclaiming, circular reasoning, theatrical self-correction.
-    Only runs on prove-type instructions to save API costs.
-    Note: LLM judge is probabilistic - temperature=0 improves consistency
-    but does not guarantee identical outputs across runs.
+    Prove-type rows: checked for overclaiming, circular reasoning, theatrical.
+    All other rows: checked for theatrical only.
+    Note: temperature=0 improves consistency but does not guarantee
+    identical outputs across runs.
     """
     print("\n=== LLM JUDGE ===")
 
     prove_mask = df['instruction'].str.lower().str.contains('prove')
     prove_df = df[prove_mask]
+    other_df = df[~prove_mask]
 
-    print(f"Checking {len(prove_df)} prove-type responses...")
+    print(f"Checking {len(prove_df)} prove-type responses for all issues...")
 
     for idx, row in prove_df.iterrows():
         prompt = f"""You are evaluating a math reasoning dataset.
@@ -235,6 +235,76 @@ THEATRICAL: YES/NO - reason
         except anthropic.APIError as e:
             print(f"\nRow {idx} - API error: {e}")
 
+    print(f"\nChecking {len(other_df)} non-prove responses for theatrical only...")
+
+    for idx, row in other_df.iterrows():
+        prompt = f"""You are evaluating a math reasoning dataset.
+
+Instruction: {row['instruction']}
+
+Response: {row['response'][:JUDGE_RESPONSE_CHARS]}
+
+Answer YES or NO, then one line reason:
+Is there theatrical self-correction — an error announced before any evidence shows it is wrong?
+
+Format:
+THEATRICAL: YES/NO - reason
+"""
+        try:
+            response = client.messages.create(
+                model=MODEL,
+                max_tokens=MAX_TOKENS,
+                temperature=0,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            print(f"\nRow {idx} - {row['instruction'][:50]}...")
+            print(response.content[0].text)
+        except anthropic.APIError as e:
+            print(f"\nRow {idx} - API error: {e}")
+
+
+def reasoning_consistency_check(df):
+    """
+    Proxy for training signal quality.
+    Checks if thought genuinely informs response on a random sample of 5 rows.
+    A thought that contradicts or ignores the response is a weak training signal.
+    """
+    if 'thought' not in df.columns:
+        print("\nNo thought column — skipping consistency check")
+        return
+
+    print("\n=== REASONING CONSISTENCY ===")
+    print("Checking thought-response consistency on 5 random samples...")
+
+    sample = df.sample(min(5, len(df)))
+
+    for idx, row in sample.iterrows():
+        prompt = f"""You are evaluating training data quality for a reasoning model.
+
+Instruction: {row['instruction']}
+
+Thought (reasoning trace): {row['thought'][:1000]}
+
+Response: {row['response'][:1000]}
+
+Does the thought genuinely lead to the response?
+Or does the response ignore the reasoning in the thought?
+
+Answer YES or NO, one line reason:
+CONSISTENT: YES/NO - reason
+"""
+        try:
+            response = client.messages.create(
+                model=MODEL,
+                max_tokens=100,
+                temperature=0,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            print(f"\nRow {idx} - {row['instruction'][:50]}...")
+            print(response.content[0].text)
+        except anthropic.APIError as e:
+            print(f"\nRow {idx} - API error: {e}")
+
 
 if __name__ == "__main__":
     filepath = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_DATASET
@@ -246,3 +316,4 @@ if __name__ == "__main__":
     phrase_checks(df)
     monotone_check(df)
     llm_judge(df)
+    reasoning_consistency_check(df)
