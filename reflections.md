@@ -1,33 +1,3 @@
-### Claude — final run
-
-29/30 samples generated — 30th not attempted due to API credit limit.
-All 29 passed critique loop on first or second attempt.
-failed_instructions.txt empty.
-Zero failure modes across all checks.
-Thought and response length balanced — 8,357 vs 8,454 chars.
-Only 1 prove-type instruction — deliberate design choice.
-Asking models to prove unsolvable problems forces overclaiming.
-Avoiding it removes the root cause not just the symptom.
-
----
-
-### Adaption — final run
-
-Phrase matching passed completely — looked clean on surface checks.
-LLM judge found 2 theatrical responses phrase matching missed entirely.
-Both involved pre-scripted self-correction —
-errors announced before any mathematical evidence motivated them.
-
-2 responses contained "checking full response" mid-sentence.
-This is an annotation Adaption writes internally during its own evaluation.
-It survived into the final output.
-Training on these would teach the model to insert evaluation annotations
-into its own reasoning — invisible to anyone not reading the full response.
-
-Phrase matching missed it.
-LLM judge at 1,000 chars missed it.
-Full response evaluation caught it.
-
 ## Reflections
 
 **Tradeoffs**
@@ -35,13 +5,10 @@ Full response evaluation caught it.
 Two-step generation compresses thought length.
 Original averaged 25,168 chars, Claude generated 8,357.
 Scratchpad prompt helped but did not close the gap.
+Combined pipeline improved this to 12,747 — still short of original.
 
-LLM judge scoped to prove-type only to control cost.
-Non-prove-type instructions go unchecked.
-
-Adaption run on original dataset not Claude samples.
-Stronger pipeline would be Claude for diversity, Adaption for quality.
-The comparison was more informative for the pilot than a combined pipeline.
+LLM judge runs on all rows for theatrical, prove-type gets full check.
+Majority vote not implemented — single run may produce inconsistent verdicts.
 
 Temperature tuned by observation not systematically.
 0.5 was monotone, 0.7 produced variety. No ablation run.
@@ -52,27 +19,33 @@ Temperature tuned by observation not systematically.
 
 Adaption column normalization took several iterations.
 Output had both original and enhanced columns.
-Harness kept picking up originals until load function was fixed for adaption ai dataset.
+Harness kept picking up originals until load function was fixed.
 
 ---
 
 **What another week would look like**
 
-Feed Claude samples into Adaption as a combined pipeline.
-Run judge on all rows not just prove-type.
-Fine-tune on a subset and measure a reasoning benchmark to get a real training signal proxy.
+Investigate why Adaption scored Claude samples at 47th percentile before enhancement.
+Run judge with majority vote across 3 runs to reduce false positives.
+Fine-tune on a subset and measure a reasoning benchmark
+to get a real training signal proxy.
+Add semantic duplicate detection using embeddings.
 
 ---
 
 **Where Adaption helped**
 
 Blueprint translated diagnosis findings directly into generation rules.
-Quality improved from B to A, 33rd to 57.7th percentile.
+Quality improved from B to A, 33rd to 57.7th percentile on original dataset.
+Combined pipeline improved thought length by 52% and response length by 56%.
 Confirmed diagnosis findings independently.
 
 ---
 
 **Where Adaption fell short**
 
-Cannot fix source diversity — enhancement cannot invent what the source data does not have.
-Annotation leak wrote internal evaluation strings into completions silently — invisible without reading the full response.
+Cannot fix source diversity — enhancement cannot invent what the source lacks.
+Scored Claude samples at 47th percentile before enhancement —
+lower than expected given input quality, needs investigation before scaling.
+Annotation leak wrote internal evaluation strings into completions silently —
+invisible without reading the full response.
